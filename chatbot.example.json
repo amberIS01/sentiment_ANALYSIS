@@ -1,0 +1,41 @@
+{
+  "app_name": "Sentiment Analysis Chatbot",
+  "version": "1.1.0",
+  "debug": false,
+
+  "sentiment": {
+    "positive_threshold": 0.05,
+    "negative_threshold": -0.05,
+    "mood_trend_significant_change": 0.2,
+    "mood_trend_slight_change": 0.1,
+    "variance_threshold": 0.2
+  },
+
+  "response": {
+    "use_keyword_matching": true,
+    "randomize_responses": true,
+    "include_sentiment_in_response": true
+  },
+
+  "logging": {
+    "enabled": true,
+    "level": "INFO",
+    "log_file": null,
+    "log_to_console": false,
+    "debug_mode": false
+  },
+
+  "export": {
+    "export_directory": "exports",
+    "default_format": "json",
+    "include_timestamps": true,
+    "include_sentiment": true
+  },
+
+  "cli": {
+    "show_banner": true,
+    "show_sentiment": true,
+    "separator_width": 60,
+    "prompt_string": "You: "
+  }
+}
