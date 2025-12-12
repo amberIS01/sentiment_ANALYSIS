@@ -1,20 +1,35 @@
 # Chatbot with Sentiment Analysis
 
-A Python chatbot that maintains conversation history and performs sentiment analysis at both the statement level (Tier 2) and conversation level (Tier 1).
+[![CI](https://github.com/sahil/sentiment-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/sahil/sentiment-chatbot/actions/workflows/ci.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A Python chatbot that maintains conversation history and performs sentiment analysis at both the statement level (Tier 2) and conversation level (Tier 1). Features emotion detection, conversation export, and comprehensive statistics tracking.
 
 ## Features
 
-### Tier 1 - Conversation-Level Sentiment Analysis (Mandatory)
+### Core Features
+
+#### Tier 1 - Conversation-Level Sentiment Analysis
 - Maintains full conversation history throughout the session
 - Generates comprehensive sentiment analysis at the end of the interaction
 - Provides overall emotional direction based on the complete exchange
 
-### Tier 2 - Statement-Level Sentiment Analysis (Additional Credit)
+#### Tier 2 - Statement-Level Sentiment Analysis
 - Real-time sentiment evaluation for every user message
 - Displays each message alongside its sentiment output
 - Mood trend analysis showing sentiment shifts across the conversation
 
-## How to Run
+### New Features (v1.1.0)
+
+- **Emotion Detection**: Beyond basic sentiment, detect specific emotions (joy, sadness, anger, fear, surprise, disgust, trust, anticipation)
+- **Conversation Export**: Export conversations to JSON, CSV, or plain text
+- **Statistics Tracking**: Comprehensive metrics including response times, engagement ratios, and sentiment variance
+- **Configuration System**: JSON-based configuration with environment variable support
+- **Input Validation**: Robust input validation and sanitization
+- **Logging**: Structured logging for debugging and monitoring
+
+## Quick Start
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -22,138 +37,243 @@ A Python chatbot that maintains conversation history and performs sentiment anal
 
 ### Installation
 
-1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd liaplus
+# Clone the repository
+git clone https://github.com/sahil/sentiment-chatbot.git
+cd sentiment-chatbot
+
+# Install with pip
+pip install -e .
+
+# Or use make
+make install
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+### Running
 
-3. Run the chatbot:
 ```bash
+# Interactive mode
 python main.py
-```
 
-### Usage Options
-
-**Interactive Mode (default):**
-```bash
-python main.py
-```
-
-**Demo Mode:**
-```bash
+# Demo mode
 python main.py --demo
+
+# Using make
+make run
+make demo
 ```
 
-### Commands During Chat
-- `quit` or `exit` - End conversation and display final summary
-- `summary` - View current conversation sentiment analysis
-- `clear` - Clear conversation history and start fresh
-- `help` - Display available commands
+## Usage
 
-## Chosen Technologies
+### Interactive Commands
+
+| Command | Description |
+|---------|-------------|
+| `quit` / `exit` | End conversation and display summary |
+| `summary` | View current conversation analysis |
+| `clear` | Clear history and start fresh |
+| `help` | Display available commands |
+| `export` | Export conversation to file |
+
+### Programmatic API
+
+```python
+from chatbot import Chatbot, EmotionDetector, export_conversation
+
+# Basic usage
+bot = Chatbot()
+response, sentiment = bot.process_message("I love your service!")
+print(f"Sentiment: {sentiment.label.value}")
+print(f"Response: {response}")
+
+# Get conversation summary
+summary = bot.get_conversation_summary()
+print(f"Overall: {summary.overall_sentiment.value}")
+print(f"Mood trend: {summary.mood_trend}")
+
+# Emotion detection
+detector = EmotionDetector()
+emotion = detector.detect_emotion("I am so happy and excited!")
+print(f"Emotion: {emotion.primary_emotion.value}")
+
+# Export conversation
+filepath = export_conversation(bot.conversation, format="json")
+print(f"Exported to: {filepath}")
+```
+
+### Advanced Usage
+
+```python
+from chatbot import (
+    Chatbot,
+    ConversationManager,
+    SentimentAnalyzer,
+    StatisticsTracker,
+    InputValidator,
+)
+
+# Custom conversation manager
+manager = ConversationManager()
+bot = Chatbot(conversation_manager=manager)
+
+# Input validation
+validator = InputValidator(max_length=1000)
+result = validator.validate(user_input)
+if result.is_valid:
+    bot.process_message(result.cleaned_value)
+
+# Statistics tracking
+tracker = StatisticsTracker()
+stats = tracker.calculate_statistics(bot.conversation)
+print(f"Messages per minute: {stats.messages_per_minute:.2f}")
+print(f"Sentiment variance: {stats.sentiment_variance:.2f}")
+```
+
+## Configuration
+
+Create a `chatbot.json` file or copy from `chatbot.example.json`:
+
+```json
+{
+  "sentiment": {
+    "positive_threshold": 0.05,
+    "negative_threshold": -0.05
+  },
+  "response": {
+    "use_keyword_matching": true,
+    "randomize_responses": true
+  },
+  "logging": {
+    "enabled": true,
+    "level": "INFO"
+  },
+  "export": {
+    "export_directory": "exports",
+    "default_format": "json"
+  }
+}
+```
+
+Environment variables (prefixed with `CHATBOT_`):
+- `CHATBOT_DEBUG=true`
+- `CHATBOT_LOG_LEVEL=DEBUG`
+- `CHATBOT_EXPORT_DIR=my_exports`
+
+## Project Structure
+
+```
+sentiment_ANALYSIS/
+├── chatbot/                # Main package
+│   ├── __init__.py         # Package exports
+│   ├── sentiment.py        # Sentiment analysis (VADER)
+│   ├── conversation.py     # Conversation management
+│   ├── bot.py              # Chatbot response logic
+│   ├── emotions.py         # Emotion detection
+│   ├── exporter.py         # Export functionality
+│   ├── statistics.py       # Statistics tracking
+│   ├── validators.py       # Input validation
+│   ├── logger.py           # Logging utilities
+│   ├── config.py           # Configuration management
+│   ├── constants.py        # Constants and defaults
+│   └── exceptions.py       # Custom exceptions
+├── tests/                  # Test suite (90+ tests)
+│   ├── test_sentiment.py
+│   ├── test_conversation.py
+│   ├── test_bot.py
+│   ├── test_emotions.py
+│   └── test_validators.py
+├── .github/workflows/      # CI/CD
+│   └── ci.yml
+├── main.py                 # CLI entry point
+├── pyproject.toml          # Project configuration
+├── setup.py                # Installation script
+├── Makefile                # Development commands
+├── requirements.txt        # Dependencies
+├── LICENSE                 # MIT License
+├── CONTRIBUTING.md         # Contribution guidelines
+└── README.md               # This file
+```
+
+## Development
+
+### Setup Development Environment
+
+```bash
+# Install dev dependencies
+make install-dev
+
+# Set up pre-commit hooks
+pre-commit install
+```
+
+### Running Tests
+
+```bash
+# All tests
+make test
+
+# With coverage
+make test-cov
+
+# Specific test file
+pytest tests/test_emotions.py -v
+```
+
+### Code Quality
+
+```bash
+# Format code
+make format
+
+# Run linters
+make lint
+
+# Check without modifying
+make check
+```
+
+## Technology Stack
 
 | Technology | Purpose |
 |------------|---------|
-| **Python 3.8+** | Primary programming language |
-| **NLTK** | Natural Language Toolkit for NLP operations |
-| **VADER Sentiment** | Sentiment analysis engine (part of NLTK) |
+| **Python 3.8+** | Primary language |
+| **NLTK/VADER** | Sentiment analysis |
 | **pytest** | Testing framework |
+| **black/isort** | Code formatting |
+| **flake8/mypy** | Linting and type checking |
+| **GitHub Actions** | CI/CD pipeline |
 
 ### Why VADER?
 
-VADER (Valence Aware Dictionary and sEntiment Reasoner) was chosen for sentiment analysis because:
+VADER (Valence Aware Dictionary and sEntiment Reasoner) is ideal for chatbot sentiment analysis:
 
-1. **Designed for Social Media/Chat**: Specifically attuned to sentiments expressed in conversational text
-2. **Handles Informal Language**: Recognizes slang, emoticons, and internet-speak
-3. **Emphasis Detection**: Understands punctuation (!!!), capitalization (GREAT), and degree modifiers
-4. **No Training Required**: Lexicon-based approach works out-of-the-box
-5. **Lightweight**: No large model downloads or external API calls needed
+- **Conversational Text**: Designed for social media and chat
+- **Informal Language**: Handles slang, emoticons, abbreviations
+- **Emphasis Detection**: Understands punctuation, capitalization
+- **Zero Training**: Lexicon-based, works immediately
+- **Lightweight**: No large models or API calls
 
-## Explanation of Sentiment Logic
+## Sentiment Logic
 
-### Sentiment Classification
-
-The sentiment analyzer classifies text into three categories based on VADER's compound score:
+### Classification Thresholds
 
 | Compound Score | Classification |
 |----------------|----------------|
 | >= 0.05 | Positive |
 | <= -0.05 | Negative |
-| Between -0.05 and 0.05 | Neutral |
+| -0.05 to 0.05 | Neutral |
 
-### Per-Message Analysis (Tier 2)
+### Emotion Detection
 
-Each user message is analyzed immediately upon input:
-```
-User: "Your service disappoints me"
-  -> Sentiment: Negative
-```
-
-### Conversation Analysis (Tier 1)
-
-At conversation end, the system:
-1. Aggregates all user message sentiments
-2. Calculates average compound score
-3. Determines overall sentiment direction
-4. Analyzes mood trends across the conversation
-
-### Mood Trend Detection
-
-The system analyzes sentiment evolution by:
-1. Comparing first-half vs second-half average scores
-2. Comparing start vs end sentiment
-3. Detecting patterns: improving, declining, stable, or fluctuating
-
-## Status of Tier 2 Implementation
-
-**Tier 2 is FULLY IMPLEMENTED** with all features:
-
-| Feature | Status |
-|---------|--------|
-| Per-message sentiment evaluation | ✅ Complete |
-| Display sentiment with each message | ✅ Complete |
-| Mood trend summarization | ✅ Complete |
-
-## Project Structure
-
-```
-liaplus/
-├── main.py                 # Entry point with CLI
-├── requirements.txt        # Project dependencies
-├── README.md              # This documentation
-├── chatbot/               # Main package
-│   ├── __init__.py        # Package exports
-│   ├── sentiment.py       # Sentiment analysis module
-│   ├── conversation.py    # Conversation management
-│   └── bot.py             # Chatbot response logic
-└── tests/                 # Test suite
-    ├── __init__.py
-    ├── test_sentiment.py  # Sentiment analyzer tests
-    ├── test_conversation.py # Conversation manager tests
-    └── test_bot.py        # Chatbot tests
-```
-
-## Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with verbose output
-pytest -v
-
-# Run specific test file
-pytest tests/test_sentiment.py
-
-# Run with coverage
-pytest --cov=chatbot
-```
+Beyond positive/negative/neutral, the system detects:
+- **Joy**: happiness, excitement, delight
+- **Sadness**: grief, disappointment, loneliness
+- **Anger**: frustration, rage, annoyance
+- **Fear**: anxiety, worry, nervousness
+- **Surprise**: shock, amazement
+- **Disgust**: revulsion, distaste
+- **Trust**: confidence, belief
+- **Anticipation**: eagerness, expectation
 
 ## Example Session
 
@@ -172,16 +292,6 @@ You: quit
 CONVERSATION SUMMARY
 ============================================================
 
-Conversation History:
-----------------------------------------
-User: "Your service disappoints me"
-  -> Sentiment: Negative
-Chatbot: "I'm sorry to hear that..."
-User: "Last experience was better"
-  -> Sentiment: Positive
-Chatbot: "I appreciate your feedback!..."
-
-----------------------------------------
 Sentiment Statistics:
   Positive messages: 1
   Negative messages: 1
@@ -191,40 +301,14 @@ Sentiment Statistics:
 Mood Trend: Slight improvement in mood over the conversation
 
 ============================================================
-FINAL OUTPUT: Overall conversation sentiment: Negative - Slight improvement in mood over the conversation
+FINAL OUTPUT: Overall conversation sentiment: Negative
 ============================================================
 ```
 
-## Additional Features & Enhancements
+## Contributing
 
-1. **Modular Architecture**: Clean separation of concerns allows easy extension
-2. **Comprehensive Test Suite**: 40+ tests covering all modules
-3. **Keyword-Based Responses**: Smart responses for common phrases (greetings, thanks, complaints)
-4. **Sentiment-Aware Responses**: Bot adapts tone based on user sentiment
-5. **Detailed Statistics**: Message counts, average scores, trend analysis
-6. **Demo Mode**: Quick demonstration of functionality
-7. **Session Commands**: View summary, clear history, get help mid-conversation
-
-## API Usage
-
-The chatbot can also be used programmatically:
-
-```python
-from chatbot import Chatbot
-
-bot = Chatbot()
-
-# Process messages
-response, sentiment = bot.process_message("I love your service!")
-print(f"Sentiment: {sentiment.label.value}")
-print(f"Response: {response}")
-
-# Get summary
-summary = bot.get_conversation_summary()
-print(f"Overall: {summary.overall_sentiment.value}")
-print(f"Mood trend: {summary.mood_trend}")
-```
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project was created for the LiaPlus AI assignment.
+This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
