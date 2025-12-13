@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentiment-chatbot
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./exports:/app/exports
+      - ./logs:/app/logs
+    environment:
+      - CHATBOT_DEBUG=false
+      - CHATBOT_LOG_LEVEL=INFO
+    restart: unless-stopped
+
+  chatbot-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentiment-chatbot-dev
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/app
+      - ./exports:/app/exports
+    environment:
+      - CHATBOT_DEBUG=true
+      - CHATBOT_LOG_LEVEL=DEBUG
+    command: python main.py --demo
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentiment-chatbot-test
+    volumes:
+      - .:/app
+    command: pytest tests/ -v
