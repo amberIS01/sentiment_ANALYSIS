@@ -25,6 +25,8 @@ from .exporter import ConversationExporter, export_conversation
 from .statistics import StatisticsTracker, ConversationStatistics
 from .validators import InputValidator, ValidationResult
 from .logger import setup_logger, get_logger, ChatLogger
+from .config import ChatbotConfig, get_config, load_config
+from .utils import truncate_text, format_duration, safe_divide
 
 __all__ = [
     # Core classes
@@ -53,6 +55,14 @@ __all__ = [
     "setup_logger",
     "get_logger",
     "ChatLogger",
+    # Configuration
+    "ChatbotConfig",
+    "get_config",
+    "load_config",
+    # Utilities
+    "truncate_text",
+    "format_duration",
+    "safe_divide",
 ]
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
