@@ -1,0 +1,23 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include requirements.txt
+include requirements-dev.txt
+include pyproject.toml
+include chatbot.example.json
+
+recursive-include chatbot *.py *.typed
+recursive-include tests *.py
+recursive-include examples *.py
+recursive-include scripts *.py *.sh
+
+exclude .gitignore
+exclude .editorconfig
+exclude Makefile
+exclude Dockerfile
+exclude docker-compose.yml
+
+recursive-exclude * __pycache__
+recursive-exclude * *.pyc
+recursive-exclude * *.pyo
