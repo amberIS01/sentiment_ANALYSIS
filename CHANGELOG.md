@@ -7,9 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2024-12-14
+
+### Added
+- CLI formatters module with colors and styling
+- Response templates module
+- Session management module
+- Metrics collection module
+- Caching module for sentiment results
+- Conversation persistence module
+- API module for programmatic access
+- Examples directory with usage samples
+- Scripts directory with runner and benchmark
+- Tests for logger, exceptions, formatters, API modules
+- MANIFEST.in for package distribution
+- GitHub funding configuration
+
+### Changed
+- Updated version to 1.3.0
+
+## [1.2.0] - 2024-12-14
+
 ### Added
 - Utility helpers module
 - Type aliases for better type hints
+- Tests for exporter, statistics, config modules
+- Dockerfile and docker-compose.yml
+- Requirements-dev.txt
+- CODE_OF_CONDUCT.md
+- SECURITY.md
+- GitHub issue and PR templates
+- py.typed marker for PEP 561
+- .editorconfig
+- .dockerignore
+- pytest conftest.py
+
+### Changed
+- Updated version to 1.2.0
 
 ## [1.1.0] - 2024-12-13
 
