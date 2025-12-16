@@ -32,7 +32,7 @@ dev_requirements = [
 
 setup(
     name="sentiment-chatbot",
-    version="1.4.0",
+    version="1.5.0",
     author="Sahil",
     description="A chatbot with conversation-level and statement-level sentiment analysis",
     long_description=long_description,
