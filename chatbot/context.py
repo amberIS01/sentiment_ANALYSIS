@@ -1,143 +1,171 @@
 """
-Context Management Module
+Context Analyzer Module
 
-Provides context managers for chatbot operations.
+Analyze sentiment in context.
 """
 
-from contextlib import contextmanager
-from typing import Optional, Generator, Any, Dict
 from dataclasses import dataclass, field
-from datetime import datetime
-import threading
+from typing import List, Dict, Optional, Any
+from enum import Enum
+
+
+class ContextType(Enum):
+    """Types of context."""
+
+    GENERAL = "general"
+    BUSINESS = "business"
+    CASUAL = "casual"
+    TECHNICAL = "technical"
+    EMOTIONAL = "emotional"
 
 
 @dataclass
-class ChatContext:
-    """Context for a chat session."""
+class ContextWindow:
+    """A window of context."""
 
-    session_id: str
-    user_id: Optional[str] = None
-    started_at: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    message_count: int = 0
-
-    def increment_messages(self) -> None:
-        """Increment message count."""
-        self.message_count += 1
+    texts: List[str]
+    sentiments: List[float]
+    window_size: int = 5
 
 
-class ContextVar:
-    """Thread-local context variable."""
+@dataclass
+class ContextualSentiment:
+    """Sentiment with context."""
 
-    def __init__(self, name: str, default: Any = None):
-        """Initialize context variable."""
-        self.name = name
-        self.default = default
-        self._local = threading.local()
+    text: str
+    raw_score: float
+    contextual_score: float
+    context_type: ContextType
+    context_weight: float
+    adjustment: float
 
-    def get(self) -> Any:
-        """Get current value."""
-        return getattr(self._local, "value", self.default)
 
-    def set(self, value: Any) -> Any:
-        """Set value and return previous."""
-        previous = self.get()
-        self._local.value = value
-        return previous
+class ContextAnalyzer:
+    """Analyze sentiment with context."""
+
+    def __init__(self, window_size: int = 5):
+        """Initialize analyzer."""
+        self._window_size = window_size
+        self._history: List[float] = []
+        self._context_type = ContextType.GENERAL
+        self._modifiers: Dict[ContextType, float] = {
+            ContextType.GENERAL: 1.0,
+            ContextType.BUSINESS: 0.8,
+            ContextType.CASUAL: 1.2,
+            ContextType.TECHNICAL: 0.7,
+            ContextType.EMOTIONAL: 1.5,
+        }
+
+    def set_context(self, context_type: ContextType) -> None:
+        """Set context type."""
+        self._context_type = context_type
+
+    def add_to_history(self, score: float) -> None:
+        """Add score to history."""
+        self._history.append(score)
+        if len(self._history) > self._window_size:
+            self._history.pop(0)
+
+    def get_context_average(self) -> float:
+        """Get average sentiment from context."""
+        if not self._history:
+            return 0.0
+        return sum(self._history) / len(self._history)
+
+    def analyze(
+        self,
+        text: str,
+        raw_score: float,
+    ) -> ContextualSentiment:
+        """Analyze sentiment with context."""
+        context_avg = self.get_context_average()
+        modifier = self._modifiers[self._context_type]
+
+        # Blend with context
+        if self._history:
+            context_weight = min(len(self._history) / self._window_size, 1.0)
+            blended = raw_score * (1 - context_weight * 0.3) + context_avg * context_weight * 0.3
+        else:
+            blended = raw_score
+            context_weight = 0.0
+
+        # Apply context modifier
+        adjusted = blended * modifier
+        adjusted = max(-1.0, min(1.0, adjusted))
+
+        self.add_to_history(raw_score)
+
+        return ContextualSentiment(
+            text=text,
+            raw_score=raw_score,
+            contextual_score=adjusted,
+            context_type=self._context_type,
+            context_weight=context_weight,
+            adjustment=adjusted - raw_score,
+        )
 
     def reset(self) -> None:
-        """Reset to default."""
-        if hasattr(self._local, "value"):
-            delattr(self._local, "value")
+        """Reset context history."""
+        self._history.clear()
+
+    def get_trend(self) -> str:
+        """Get sentiment trend."""
+        if len(self._history) < 2:
+            return "stable"
+
+        first_half = self._history[:len(self._history) // 2]
+        second_half = self._history[len(self._history) // 2:]
+
+        first_avg = sum(first_half) / len(first_half)
+        second_avg = sum(second_half) / len(second_half)
+
+        diff = second_avg - first_avg
+        if diff > 0.1:
+            return "improving"
+        elif diff < -0.1:
+            return "declining"
+        return "stable"
 
 
-# Global context variable
-_current_context: ContextVar = ContextVar("current_context")
+@dataclass
+class ConversationContext:
+    """Track conversation context."""
 
+    messages: List[str] = field(default_factory=list)
+    sentiments: List[float] = field(default_factory=list)
+    topics: List[str] = field(default_factory=list)
+    context_type: ContextType = ContextType.GENERAL
 
-def get_current_context() -> Optional[ChatContext]:
-    """Get the current chat context."""
-    return _current_context.get()
-
-
-def set_current_context(context: Optional[ChatContext]) -> None:
-    """Set the current chat context."""
-    _current_context.set(context)
-
-
-@contextmanager
-def chat_context(
-    session_id: str,
-    user_id: Optional[str] = None,
-) -> Generator[ChatContext, None, None]:
-    """Context manager for chat sessions."""
-    context = ChatContext(
-        session_id=session_id,
-        user_id=user_id,
-    )
-    previous = _current_context.set(context)
-    try:
-        yield context
-    finally:
-        _current_context.set(previous)
-
-
-@contextmanager
-def temporary_context(
-    **kwargs: Any,
-) -> Generator[ChatContext, None, None]:
-    """Create a temporary context with custom metadata."""
-    current = get_current_context()
-    if current:
-        # Clone current context with updates
-        new_context = ChatContext(
-            session_id=current.session_id,
-            user_id=current.user_id,
-            started_at=current.started_at,
-            metadata={**current.metadata, **kwargs},
-            message_count=current.message_count,
-        )
-    else:
-        new_context = ChatContext(
-            session_id="temp",
-            metadata=kwargs,
-        )
-
-    previous = _current_context.set(new_context)
-    try:
-        yield new_context
-    finally:
-        _current_context.set(previous)
-
-
-class ContextManager:
-    """Manage multiple chat contexts."""
-
-    def __init__(self):
-        """Initialize context manager."""
-        self._contexts: Dict[str, ChatContext] = {}
-
-    def create(
+    def add_message(
         self,
-        session_id: str,
-        user_id: Optional[str] = None,
-    ) -> ChatContext:
-        """Create a new context."""
-        context = ChatContext(session_id=session_id, user_id=user_id)
-        self._contexts[session_id] = context
-        return context
+        message: str,
+        sentiment: float,
+        topic: Optional[str] = None,
+    ) -> None:
+        """Add message to context."""
+        self.messages.append(message)
+        self.sentiments.append(sentiment)
+        if topic:
+            self.topics.append(topic)
 
-    def get(self, session_id: str) -> Optional[ChatContext]:
-        """Get context by session ID."""
-        return self._contexts.get(session_id)
+    def get_summary(self) -> Dict[str, Any]:
+        """Get context summary."""
+        return {
+            "message_count": len(self.messages),
+            "avg_sentiment": sum(self.sentiments) / len(self.sentiments) if self.sentiments else 0,
+            "topics": list(set(self.topics)),
+            "context_type": self.context_type.value,
+        }
 
-    def remove(self, session_id: str) -> bool:
-        """Remove a context."""
-        if session_id in self._contexts:
-            del self._contexts[session_id]
-            return True
-        return False
 
-    def list_all(self) -> Dict[str, ChatContext]:
-        """Get all contexts."""
-        return self._contexts.copy()
+def analyze_with_context(
+    text: str,
+    score: float,
+    history: List[float],
+) -> float:
+    """Analyze sentiment with historical context."""
+    analyzer = ContextAnalyzer()
+    for h in history:
+        analyzer.add_to_history(h)
+    result = analyzer.analyze(text, score)
+    return result.contextual_score
