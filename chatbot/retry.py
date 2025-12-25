@@ -1,109 +1,157 @@
 """
-Retry Utilities Module
+Retry Logic Module
 
-Provides retry decorators and utilities for handling transient failures.
+Retry failed operations with backoff.
 """
 
+from dataclasses import dataclass
+from typing import Callable, Any, Optional, List, Type
+from enum import Enum
 import time
 import random
-from functools import wraps
-from typing import Type, Tuple, Callable, Optional
+
+
+class BackoffStrategy(Enum):
+    """Backoff strategies."""
+
+    CONSTANT = "constant"
+    LINEAR = "linear"
+    EXPONENTIAL = "exponential"
+    JITTERED = "jittered"
+
+
+@dataclass
+class RetryConfig:
+    """Retry configuration."""
+
+    max_attempts: int = 3
+    initial_delay: float = 1.0
+    max_delay: float = 60.0
+    backoff: BackoffStrategy = BackoffStrategy.EXPONENTIAL
+    multiplier: float = 2.0
+    jitter: float = 0.1
+
+
+@dataclass
+class RetryResult:
+    """Result of retry operation."""
+
+    success: bool
+    value: Any
+    attempts: int
+    total_time: float
+    errors: List[str]
 
 
 class RetryError(Exception):
-    """Raised when all retry attempts fail."""
+    """Retry exhausted error."""
 
-    def __init__(self, message: str, last_exception: Optional[Exception] = None):
+    def __init__(self, message: str, attempts: int, errors: List[str]):
         super().__init__(message)
-        self.last_exception = last_exception
+        self.attempts = attempts
+        self.errors = errors
+
+
+class Retrier:
+    """Retry operations with backoff."""
+
+    def __init__(self, config: Optional[RetryConfig] = None):
+        """Initialize retrier."""
+        self.config = config or RetryConfig()
+        self._exceptions: List[Type[Exception]] = [Exception]
+
+    def retry_on(self, *exceptions: Type[Exception]) -> "Retrier":
+        """Set exceptions to retry on."""
+        self._exceptions = list(exceptions)
+        return self
+
+    def _get_delay(self, attempt: int) -> float:
+        """Calculate delay for attempt."""
+        config = self.config
+
+        if config.backoff == BackoffStrategy.CONSTANT:
+            delay = config.initial_delay
+        elif config.backoff == BackoffStrategy.LINEAR:
+            delay = config.initial_delay * attempt
+        elif config.backoff == BackoffStrategy.EXPONENTIAL:
+            delay = config.initial_delay * (config.multiplier ** (attempt - 1))
+        elif config.backoff == BackoffStrategy.JITTERED:
+            base = config.initial_delay * (config.multiplier ** (attempt - 1))
+            jitter = random.uniform(-config.jitter, config.jitter)
+            delay = base * (1 + jitter)
+        else:
+            delay = config.initial_delay
+
+        return min(delay, config.max_delay)
+
+    def execute(self, func: Callable[[], Any]) -> RetryResult:
+        """Execute with retry."""
+        errors: List[str] = []
+        start_time = time.time()
+
+        for attempt in range(1, self.config.max_attempts + 1):
+            try:
+                result = func()
+                return RetryResult(
+                    success=True,
+                    value=result,
+                    attempts=attempt,
+                    total_time=time.time() - start_time,
+                    errors=errors,
+                )
+            except tuple(self._exceptions) as e:
+                errors.append(str(e))
+                if attempt < self.config.max_attempts:
+                    delay = self._get_delay(attempt)
+                    time.sleep(delay)
+
+        return RetryResult(
+            success=False,
+            value=None,
+            attempts=self.config.max_attempts,
+            total_time=time.time() - start_time,
+            errors=errors,
+        )
+
+    def __call__(self, func: Callable[[], Any]) -> Any:
+        """Execute and raise on failure."""
+        result = self.execute(func)
+        if not result.success:
+            raise RetryError(
+                f"Failed after {result.attempts} attempts",
+                result.attempts,
+                result.errors,
+            )
+        return result.value
 
 
 def retry(
+    func: Callable[[], Any],
     max_attempts: int = 3,
     delay: float = 1.0,
-    backoff: float = 2.0,
-    exceptions: Tuple[Type[Exception], ...] = (Exception,),
-    jitter: bool = True,
-) -> Callable:
-    """Retry decorator with exponential backoff.
-
-    Args:
-        max_attempts: Maximum number of retry attempts
-        delay: Initial delay between retries in seconds
-        backoff: Multiplier for delay after each retry
-        exceptions: Tuple of exceptions to catch and retry
-        jitter: Add random jitter to delay
-
-    Returns:
-        Decorated function
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            current_delay = delay
-            last_exception = None
-
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_exception = e
-                    if attempt == max_attempts - 1:
-                        raise RetryError(
-                            f"Failed after {max_attempts} attempts",
-                            last_exception=e,
-                        )
-
-                    wait_time = current_delay
-                    if jitter:
-                        wait_time += random.uniform(0, current_delay * 0.1)
-
-                    time.sleep(wait_time)
-                    current_delay *= backoff
-
-        return wrapper
-    return decorator
+) -> Any:
+    """Retry a function."""
+    config = RetryConfig(max_attempts=max_attempts, initial_delay=delay)
+    retrier = Retrier(config)
+    return retrier(func)
 
 
-def retry_on_exception(
-    exception_type: Type[Exception],
+def with_retry(
     max_attempts: int = 3,
+    delay: float = 1.0,
+    backoff: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
 ) -> Callable:
-    """Simple retry decorator for specific exception.
+    """Decorator for retry."""
+    config = RetryConfig(
+        max_attempts=max_attempts,
+        initial_delay=delay,
+        backoff=backoff,
+    )
 
-    Args:
-        exception_type: Exception type to retry on
-        max_attempts: Maximum number of attempts
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*args, **kwargs) -> Any:
+            retrier = Retrier(config)
+            return retrier(lambda: func(*args, **kwargs))
+        return wrapper
 
-    Returns:
-        Decorated function
-    """
-    return retry(max_attempts=max_attempts, exceptions=(exception_type,))
-
-
-class RetryContext:
-    """Context manager for retry logic."""
-
-    def __init__(
-        self,
-        max_attempts: int = 3,
-        delay: float = 1.0,
-        exceptions: Tuple[Type[Exception], ...] = (Exception,),
-    ):
-        self.max_attempts = max_attempts
-        self.delay = delay
-        self.exceptions = exceptions
-        self.attempt = 0
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.attempt >= self.max_attempts:
-            raise StopIteration
-
-        if self.attempt > 0:
-            time.sleep(self.delay)
-
-        self.attempt += 1
-        return self.attempt
+    return decorator
