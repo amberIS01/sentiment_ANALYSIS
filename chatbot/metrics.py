@@ -1,95 +1,202 @@
 """
-Metrics Collection Module
+Metrics Module
 
-This module provides metrics collection and monitoring capabilities.
+Track and report sentiment analysis metrics.
 """
 
-from datetime import datetime
-from typing import Dict, List, Optional
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+import threading
 import time
 
 
 @dataclass
 class MetricPoint:
-    """A single metric data point."""
+    """A single metric point."""
+
     name: str
     value: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime
     tags: Dict[str, str] = field(default_factory=dict)
 
 
-class MetricsCollector:
-    """Collect and track metrics."""
+@dataclass
+class MetricSummary:
+    """Summary of a metric."""
 
-    def __init__(self):
-        self._metrics: Dict[str, List[MetricPoint]] = {}
-        self._counters: Dict[str, int] = {}
-        self._start_time = datetime.now()
+    name: str
+    count: int
+    total: float
+    average: float
+    min_value: float
+    max_value: float
 
-    def increment(self, name: str, value: int = 1) -> None:
-        """Increment a counter."""
-        self._counters[name] = self._counters.get(name, 0) + value
 
-    def record(self, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
-        """Record a metric value."""
-        if name not in self._metrics:
-            self._metrics[name] = []
+class Counter:
+    """Thread-safe counter."""
 
-        point = MetricPoint(name=name, value=value, tags=tags or {})
-        self._metrics[name].append(point)
+    def __init__(self, name: str):
+        self.name = name
+        self._value = 0
+        self._lock = threading.Lock()
 
-    def get_counter(self, name: str) -> int:
-        """Get counter value."""
-        return self._counters.get(name, 0)
+    def increment(self, amount: int = 1) -> None:
+        """Increment counter."""
+        with self._lock:
+            self._value += amount
 
-    def get_average(self, name: str) -> float:
-        """Get average of recorded values."""
-        points = self._metrics.get(name, [])
-        if not points:
-            return 0.0
-        return sum(p.value for p in points) / len(points)
+    def decrement(self, amount: int = 1) -> None:
+        """Decrement counter."""
+        with self._lock:
+            self._value -= amount
 
-    def get_summary(self) -> Dict[str, any]:
-        """Get metrics summary."""
-        uptime = datetime.now() - self._start_time
-        return {
-            "uptime_seconds": uptime.total_seconds(),
-            "counters": dict(self._counters),
-            "averages": {name: self.get_average(name) for name in self._metrics},
-        }
+    @property
+    def value(self) -> int:
+        return self._value
 
     def reset(self) -> None:
-        """Reset all metrics."""
-        self._metrics.clear()
-        self._counters.clear()
-        self._start_time = datetime.now()
+        """Reset counter."""
+        with self._lock:
+            self._value = 0
+
+
+class Gauge:
+    """Thread-safe gauge."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self._value = 0.0
+        self._lock = threading.Lock()
+
+    def set(self, value: float) -> None:
+        """Set gauge value."""
+        with self._lock:
+            self._value = value
+
+    def increment(self, amount: float = 1.0) -> None:
+        """Increment gauge."""
+        with self._lock:
+            self._value += amount
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+
+class Histogram:
+    """Histogram for tracking distributions."""
+
+    def __init__(self, name: str, buckets: Optional[List[float]] = None):
+        self.name = name
+        self._values: List[float] = []
+        self._buckets = buckets or [0.1, 0.5, 1.0, 2.0, 5.0]
+        self._lock = threading.Lock()
+
+    def observe(self, value: float) -> None:
+        """Record a value."""
+        with self._lock:
+            self._values.append(value)
+
+    def get_summary(self) -> MetricSummary:
+        """Get histogram summary."""
+        with self._lock:
+            if not self._values:
+                return MetricSummary(
+                    name=self.name,
+                    count=0,
+                    total=0,
+                    average=0,
+                    min_value=0,
+                    max_value=0,
+                )
+            return MetricSummary(
+                name=self.name,
+                count=len(self._values),
+                total=sum(self._values),
+                average=sum(self._values) / len(self._values),
+                min_value=min(self._values),
+                max_value=max(self._values),
+            )
 
 
 class Timer:
-    """Context manager for timing operations."""
+    """Context manager for timing."""
 
-    def __init__(self, collector: MetricsCollector, name: str):
-        self.collector = collector
-        self.name = name
-        self._start: Optional[float] = None
+    def __init__(self, histogram: Histogram):
+        self._histogram = histogram
+        self._start: float = 0
 
-    def __enter__(self):
-        self._start = time.perf_counter()
+    def __enter__(self) -> "Timer":
+        self._start = time.time()
         return self
 
-    def __exit__(self, *args):
-        elapsed = time.perf_counter() - self._start
-        self.collector.record(f"{self.name}_duration_ms", elapsed * 1000)
+    def __exit__(self, *args) -> None:
+        elapsed = time.time() - self._start
+        self._histogram.observe(elapsed)
+
+
+class MetricsCollector:
+    """Collect and manage metrics."""
+
+    def __init__(self):
+        self._counters: Dict[str, Counter] = {}
+        self._gauges: Dict[str, Gauge] = {}
+        self._histograms: Dict[str, Histogram] = {}
+        self._points: List[MetricPoint] = []
+
+    def counter(self, name: str) -> Counter:
+        """Get or create counter."""
+        if name not in self._counters:
+            self._counters[name] = Counter(name)
+        return self._counters[name]
+
+    def gauge(self, name: str) -> Gauge:
+        """Get or create gauge."""
+        if name not in self._gauges:
+            self._gauges[name] = Gauge(name)
+        return self._gauges[name]
+
+    def histogram(self, name: str) -> Histogram:
+        """Get or create histogram."""
+        if name not in self._histograms:
+            self._histograms[name] = Histogram(name)
+        return self._histograms[name]
+
+    def timer(self, name: str) -> Timer:
+        """Get timer for histogram."""
+        return Timer(self.histogram(name))
+
+    def record(
+        self,
+        name: str,
+        value: float,
+        tags: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Record a metric point."""
+        self._points.append(MetricPoint(
+            name=name,
+            value=value,
+            timestamp=datetime.now(),
+            tags=tags or {},
+        ))
+
+    def get_all(self) -> Dict[str, Any]:
+        """Get all metrics."""
+        return {
+            "counters": {n: c.value for n, c in self._counters.items()},
+            "gauges": {n: g.value for n, g in self._gauges.items()},
+            "histograms": {
+                n: h.get_summary().__dict__
+                for n, h in self._histograms.items()
+            },
+        }
 
 
 # Global metrics instance
-_metrics: Optional[MetricsCollector] = None
+_metrics = MetricsCollector()
 
 
 def get_metrics() -> MetricsCollector:
     """Get global metrics collector."""
-    global _metrics
-    if _metrics is None:
-        _metrics = MetricsCollector()
     return _metrics
