@@ -1,67 +1,154 @@
-"""
-Tests for the Metrics Module.
-"""
+"""Tests for metrics module."""
 
 import pytest
-import time
+from chatbot.metrics import (
+    MetricPoint,
+    MetricSummary,
+    Counter,
+    Gauge,
+    Histogram,
+    Timer,
+    MetricsCollector,
+    get_metrics,
+)
 
-from chatbot.metrics import MetricsCollector, Timer
+
+class TestCounter:
+    """Tests for Counter."""
+
+    def test_increment(self):
+        """Test incrementing."""
+        counter = Counter("test")
+        counter.increment()
+        
+        assert counter.value == 1
+
+    def test_decrement(self):
+        """Test decrementing."""
+        counter = Counter("test")
+        counter.increment(5)
+        counter.decrement(2)
+        
+        assert counter.value == 3
+
+    def test_reset(self):
+        """Test resetting."""
+        counter = Counter("test")
+        counter.increment(10)
+        counter.reset()
+        
+        assert counter.value == 0
 
 
-class TestTimer:
-    """Test Timer class."""
+class TestGauge:
+    """Tests for Gauge."""
 
-    def test_context_manager(self):
-        with Timer() as t:
-            time.sleep(0.01)
-        assert t.elapsed > 0
+    def test_set(self):
+        """Test setting value."""
+        gauge = Gauge("test")
+        gauge.set(42.5)
+        
+        assert gauge.value == 42.5
 
-    def test_elapsed_property(self):
-        timer = Timer()
-        timer.start()
-        time.sleep(0.01)
-        timer.stop()
-        assert timer.elapsed >= 0.01
+    def test_increment(self):
+        """Test incrementing."""
+        gauge = Gauge("test")
+        gauge.set(10.0)
+        gauge.increment(5.0)
+        
+        assert gauge.value == 15.0
+
+
+class TestHistogram:
+    """Tests for Histogram."""
+
+    def test_observe(self):
+        """Test observing values."""
+        hist = Histogram("test")
+        hist.observe(1.0)
+        hist.observe(2.0)
+        hist.observe(3.0)
+        
+        summary = hist.get_summary()
+        
+        assert summary.count == 3
+        assert summary.total == 6.0
+        assert summary.average == 2.0
+
+    def test_min_max(self):
+        """Test min/max values."""
+        hist = Histogram("test")
+        hist.observe(5.0)
+        hist.observe(10.0)
+        hist.observe(2.0)
+        
+        summary = hist.get_summary()
+        
+        assert summary.min_value == 2.0
+        assert summary.max_value == 10.0
+
+    def test_empty_histogram(self):
+        """Test empty histogram."""
+        hist = Histogram("test")
+        summary = hist.get_summary()
+        
+        assert summary.count == 0
 
 
 class TestMetricsCollector:
-    """Test MetricsCollector class."""
+    """Tests for MetricsCollector."""
 
-    def test_initialization(self):
+    def test_counter(self):
+        """Test getting counter."""
         collector = MetricsCollector()
-        assert collector is not None
+        counter = collector.counter("requests")
+        counter.increment()
+        
+        assert counter.value == 1
 
-    def test_increment(self):
+    def test_gauge(self):
+        """Test getting gauge."""
         collector = MetricsCollector()
-        collector.increment("requests")
-        collector.increment("requests")
-        assert collector.get("requests") == 2
+        gauge = collector.gauge("temperature")
+        gauge.set(25.5)
+        
+        assert gauge.value == 25.5
 
-    def test_record_value(self):
+    def test_histogram(self):
+        """Test getting histogram."""
         collector = MetricsCollector()
-        collector.record("response_time", 0.5)
-        collector.record("response_time", 1.0)
-        stats = collector.get_stats("response_time")
-        assert stats["count"] == 2
+        hist = collector.histogram("latency")
+        hist.observe(0.1)
+        
+        assert hist.get_summary().count == 1
+
+    def test_record(self):
+        """Test recording metric."""
+        collector = MetricsCollector()
+        collector.record("custom", 42.0, {"env": "test"})
+        
+        assert len(collector._points) == 1
 
     def test_get_all(self):
+        """Test getting all metrics."""
         collector = MetricsCollector()
-        collector.increment("a")
-        collector.increment("b")
+        collector.counter("c").increment()
+        collector.gauge("g").set(1.0)
+        
         all_metrics = collector.get_all()
-        assert "a" in all_metrics
-        assert "b" in all_metrics
+        
+        assert "counters" in all_metrics
+        assert "gauges" in all_metrics
 
-    def test_reset(self):
-        collector = MetricsCollector()
-        collector.increment("test")
-        collector.reset()
-        assert collector.get("test") == 0
 
-    def test_average(self):
-        collector = MetricsCollector()
-        collector.record("time", 1.0)
-        collector.record("time", 2.0)
-        collector.record("time", 3.0)
-        stats = collector.get_stats("time")
-        assert stats["average"] == 2.0
+class TestTimer:
+    """Tests for Timer."""
+
+    def test_timer_context(self):
+        """Test timer as context manager."""
+        hist = Histogram("duration")
+        
+        with Timer(hist):
+            pass  # Do something
+        
+        assert hist.get_summary().count == 1
