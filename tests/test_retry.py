@@ -1,100 +1,108 @@
-"""
-Tests for the Retry Module.
-"""
+"""Tests for retry module."""
 
 import pytest
+from chatbot.retry import (
+    BackoffStrategy,
+    RetryConfig,
+    RetryResult,
+    RetryError,
+    Retrier,
+    retry,
+    with_retry,
+)
 
-from chatbot.retry import retry, retry_on_exception, RetryError, RetryContext
 
+class TestRetrier:
+    """Tests for Retrier."""
 
-class TestRetryDecorator:
-    """Test retry decorator."""
-
-    def test_success_no_retry(self):
-        call_count = 0
-
-        @retry(max_attempts=3, delay=0.01)
-        def test_func():
-            nonlocal call_count
-            call_count += 1
-            return "success"
-
-        result = test_func()
-        assert result == "success"
-        assert call_count == 1
+    def test_success_first_try(self):
+        """Test success on first try."""
+        retrier = Retrier()
+        result = retrier.execute(lambda: "success")
+        
+        assert result.success is True
+        assert result.value == "success"
+        assert result.attempts == 1
 
     def test_retry_on_failure(self):
-        call_count = 0
-
-        @retry(max_attempts=3, delay=0.01)
-        def test_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
+        """Test retrying on failure."""
+        attempts = [0]
+        
+        def fail_twice():
+            attempts[0] += 1
+            if attempts[0] < 3:
                 raise ValueError("fail")
             return "success"
-
-        result = test_func()
-        assert result == "success"
-        assert call_count == 3
+        
+        config = RetryConfig(max_attempts=5, initial_delay=0.01)
+        retrier = Retrier(config)
+        result = retrier.execute(fail_twice)
+        
+        assert result.success is True
+        assert result.attempts == 3
 
     def test_max_attempts_exceeded(self):
-        @retry(max_attempts=2, delay=0.01)
-        def test_func():
-            raise ValueError("always fails")
+        """Test max attempts exceeded."""
+        config = RetryConfig(max_attempts=2, initial_delay=0.01)
+        retrier = Retrier(config)
+        
+        result = retrier.execute(lambda: 1/0)
+        
+        assert result.success is False
+        assert result.attempts == 2
 
+    def test_retry_on_specific_exception(self):
+        """Test retry on specific exception."""
+        config = RetryConfig(max_attempts=3, initial_delay=0.01)
+        retrier = Retrier(config).retry_on(ValueError)
+        
+        result = retrier.execute(lambda: (_ for _ in ()).throw(ValueError("test")))
+        
+        assert result.success is False
+
+    def test_callable(self):
+        """Test callable interface."""
+        config = RetryConfig(max_attempts=2, initial_delay=0.01)
+        retrier = Retrier(config)
+        
+        result = retrier(lambda: "ok")
+        assert result == "ok"
+
+    def test_callable_raises(self):
+        """Test callable raises on failure."""
+        config = RetryConfig(max_attempts=2, initial_delay=0.01)
+        retrier = Retrier(config)
+        
         with pytest.raises(RetryError):
-            test_func()
-
-    def test_specific_exception(self):
-        @retry(max_attempts=3, delay=0.01, exceptions=(ValueError,))
-        def test_func():
-            raise TypeError("wrong type")
-
-        with pytest.raises(TypeError):
-            test_func()
+            retrier(lambda: 1/0)
 
 
-class TestRetryOnException:
-    """Test retry_on_exception decorator."""
+class TestRetryFunction:
+    """Tests for retry function."""
 
-    def test_retries_specific_exception(self):
-        call_count = 0
-
-        @retry_on_exception(ValueError, max_attempts=3)
-        def test_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                raise ValueError("fail")
-            return "ok"
-
-        result = test_func()
+    def test_retry_success(self):
+        """Test retry success."""
+        result = retry(lambda: "ok", max_attempts=3, delay=0.01)
         assert result == "ok"
 
 
-class TestRetryContext:
-    """Test RetryContext class."""
+class TestWithRetryDecorator:
+    """Tests for with_retry decorator."""
 
-    def test_iteration(self):
-        context = RetryContext(max_attempts=3, delay=0.01)
-        attempts = list(context)
-        assert attempts == [1, 2, 3]
+    def test_decorator(self):
+        """Test decorator."""
+        @with_retry(max_attempts=3, delay=0.01)
+        def always_works():
+            return "success"
+        
+        result = always_works()
+        assert result == "success"
 
-    def test_limited_attempts(self):
-        context = RetryContext(max_attempts=2, delay=0.01)
-        attempts = list(context)
-        assert len(attempts) == 2
-
-
-class TestRetryError:
-    """Test RetryError exception."""
-
-    def test_message(self):
-        error = RetryError("Test error")
-        assert str(error) == "Test error"
-
-    def test_last_exception(self):
-        original = ValueError("original")
-        error = RetryError("Retry failed", last_exception=original)
-        assert error.last_exception == original
+    def test_decorator_with_args(self):
+        """Test decorator with function args."""
+        @with_retry(max_attempts=3, delay=0.01)
+        def add(a, b):
+            return a + b
+        
+        result = add(1, 2)
+        assert result == 3
