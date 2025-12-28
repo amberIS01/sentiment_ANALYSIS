@@ -1,10 +1,14 @@
-"""
-Tests for the Plugins Module.
-"""
+"""Tests for plugins module."""
 
 import pytest
-
-from chatbot.plugins import Plugin, PluginInfo, PluginManager, get_plugin_manager
+from chatbot.plugins import (
+    PluginType,
+    PluginPriority,
+    PluginInfo,
+    Plugin,
+    PluginManager,
+    create_simple_plugin,
+)
 
 
 class MockPlugin(Plugin):
@@ -12,117 +16,88 @@ class MockPlugin(Plugin):
 
     def __init__(self, name: str = "mock"):
         self._name = name
-        self.loaded = False
-        self.unloaded = False
+        self._initialized = False
 
     @property
     def info(self) -> PluginInfo:
         return PluginInfo(
             name=self._name,
             version="1.0.0",
-            description="A mock plugin",
+            description="Mock plugin",
         )
 
-    def on_load(self):
-        self.loaded = True
+    def initialize(self, config):
+        self._initialized = True
 
-    def on_unload(self):
-        self.unloaded = True
-
-    def on_message(self, message: str):
-        return message.upper()
-
-    def on_response(self, response: str):
-        return response + "!"
-
-
-class TestPluginInfo:
-    """Test PluginInfo dataclass."""
-
-    def test_creation(self):
-        info = PluginInfo(
-            name="test",
-            version="1.0.0",
-            description="Test plugin",
-        )
-        assert info.name == "test"
-        assert info.version == "1.0.0"
-
-    def test_optional_author(self):
-        info = PluginInfo(
-            name="test",
-            version="1.0.0",
-            description="Test",
-            author="Author",
-        )
-        assert info.author == "Author"
+    def execute(self, data):
+        return f"processed:{data}"
 
 
 class TestPluginManager:
-    """Test PluginManager class."""
+    """Tests for PluginManager."""
 
-    def test_initialization(self):
+    def test_register_plugin(self):
+        """Test registering plugin."""
         manager = PluginManager()
-        assert manager is not None
-
-    def test_register(self):
-        manager = PluginManager()
-        plugin = MockPlugin()
+        plugin = MockPlugin("test")
         manager.register(plugin)
-        assert manager.get("mock") is not None
+        
+        assert manager.get_plugin("test") is not None
 
-    def test_unregister(self):
+    def test_unregister_plugin(self):
+        """Test unregistering plugin."""
         manager = PluginManager()
-        plugin = MockPlugin()
+        plugin = MockPlugin("test")
         manager.register(plugin)
-        result = manager.unregister("mock")
+        
+        result = manager.unregister("test")
         assert result is True
-        assert manager.get("mock") is None
+        assert manager.get_plugin("test") is None
 
-    def test_enable(self):
+    def test_initialize_all(self):
+        """Test initializing all plugins."""
         manager = PluginManager()
-        plugin = MockPlugin()
+        plugin = MockPlugin("test")
         manager.register(plugin)
-        manager.enable("mock")
-        assert plugin.loaded is True
-        assert "mock" in manager.list_enabled()
+        manager.initialize_all()
+        
+        assert plugin._initialized is True
 
-    def test_disable(self):
+    def test_get_plugins_by_type(self):
+        """Test getting plugins by type."""
         manager = PluginManager()
-        plugin = MockPlugin()
+        plugin = MockPlugin("test")
         manager.register(plugin)
-        manager.enable("mock")
-        manager.disable("mock")
-        assert plugin.unloaded is True
-        assert "mock" not in manager.list_enabled()
+        
+        plugins = manager.get_plugins_by_type(PluginType.ANALYZER)
+        assert len(plugins) == 1
 
-    def test_list_all(self):
+    def test_list_plugins(self):
+        """Test listing plugins."""
         manager = PluginManager()
-        manager.register(MockPlugin("plugin1"))
-        manager.register(MockPlugin("plugin2"))
-        plugins = manager.list_all()
+        manager.register(MockPlugin("a"))
+        manager.register(MockPlugin("b"))
+        
+        plugins = manager.list_plugins()
         assert len(plugins) == 2
 
-    def test_process_message(self):
-        manager = PluginManager()
-        plugin = MockPlugin()
-        manager.register(plugin)
-        manager.enable("mock")
-        result = manager.process_message("hello")
+
+class TestCreateSimplePlugin:
+    """Tests for create_simple_plugin."""
+
+    def test_create_plugin(self):
+        """Test creating simple plugin."""
+        plugin = create_simple_plugin(
+            "upper",
+            lambda x: x.upper(),
+        )
+        assert plugin.info.name == "upper"
+
+    def test_execute_plugin(self):
+        """Test executing simple plugin."""
+        plugin = create_simple_plugin(
+            "upper",
+            lambda x: x.upper(),
+        )
+        result = plugin.execute("hello")
         assert result == "HELLO"
-
-    def test_process_response(self):
-        manager = PluginManager()
-        plugin = MockPlugin()
-        manager.register(plugin)
-        manager.enable("mock")
-        result = manager.process_response("hello")
-        assert result == "hello!"
-
-
-class TestGetPluginManager:
-    """Test get_plugin_manager function."""
-
-    def test_returns_manager(self):
-        manager = get_plugin_manager()
-        assert isinstance(manager, PluginManager)
