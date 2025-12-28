@@ -1,13 +1,22 @@
 """
-Sentiment Reporter Module
+Reporter Module
 
-Generate reports from sentiment analysis data.
+Generate sentiment analysis reports.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 from datetime import datetime
-import json
+from enum import Enum
+
+
+class ReportFormat(Enum):
+    """Report formats."""
+
+    TEXT = "text"
+    JSON = "json"
+    HTML = "html"
+    MARKDOWN = "markdown"
 
 
 @dataclass
@@ -16,62 +25,25 @@ class ReportSection:
 
     title: str
     content: str
-    data: Optional[Dict[str, Any]] = None
+    data: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class SentimentReport:
-    """A complete sentiment analysis report."""
+    """A complete sentiment report."""
 
     title: str
-    generated_at: datetime
+    created_at: datetime
     sections: List[ReportSection]
-    metadata: Dict[str, Any]
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert report to dictionary."""
-        return {
-            "title": self.title,
-            "generated_at": self.generated_at.isoformat(),
-            "sections": [
-                {
-                    "title": s.title,
-                    "content": s.content,
-                    "data": s.data,
-                }
-                for s in self.sections
-            ],
-            "metadata": self.metadata,
-        }
-
-    def to_json(self, indent: int = 2) -> str:
-        """Convert report to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent)
-
-    def to_text(self) -> str:
-        """Convert report to plain text."""
-        lines = [
-            "=" * 60,
-            self.title,
-            f"Generated: {self.generated_at.strftime('%Y-%m-%d %H:%M:%S')}",
-            "=" * 60,
-            "",
-        ]
-
-        for section in self.sections:
-            lines.append(f"## {section.title}")
-            lines.append("-" * 40)
-            lines.append(section.content)
-            lines.append("")
-
-        return "\n".join(lines)
+    summary: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-class SentimentReporter:
-    """Generate sentiment analysis reports."""
+class ReportBuilder:
+    """Build sentiment reports."""
 
     def __init__(self, title: str = "Sentiment Analysis Report"):
-        """Initialize reporter."""
+        """Initialize builder."""
         self.title = title
         self._sections: List[ReportSection] = []
         self._metadata: Dict[str, Any] = {}
@@ -81,106 +53,135 @@ class SentimentReporter:
         title: str,
         content: str,
         data: Optional[Dict[str, Any]] = None,
-    ) -> "SentimentReporter":
-        """Add a section to the report."""
+    ) -> "ReportBuilder":
+        """Add a section."""
         self._sections.append(ReportSection(
             title=title,
             content=content,
-            data=data,
+            data=data or {},
         ))
         return self
 
-    def add_summary(
-        self,
-        total_analyzed: int,
-        avg_sentiment: float,
-        positive_pct: float,
-        negative_pct: float,
-    ) -> "SentimentReporter":
-        """Add summary section."""
-        content = (
-            f"Total items analyzed: {total_analyzed}\n"
-            f"Average sentiment score: {avg_sentiment:.3f}\n"
-            f"Positive: {positive_pct:.1%}\n"
-            f"Negative: {negative_pct:.1%}\n"
-            f"Neutral: {1 - positive_pct - negative_pct:.1%}"
-        )
-        return self.add_section(
-            "Summary",
-            content,
-            {
-                "total": total_analyzed,
-                "avg_sentiment": avg_sentiment,
-                "positive_pct": positive_pct,
-                "negative_pct": negative_pct,
-            },
-        )
-
-    def add_distribution(
-        self,
-        distribution: Dict[str, int],
-    ) -> "SentimentReporter":
-        """Add sentiment distribution section."""
-        total = sum(distribution.values())
-        lines = []
-        for label, count in distribution.items():
-            pct = (count / total * 100) if total > 0 else 0
-            bar = "#" * int(pct / 5)
-            lines.append(f"{label:10}: {count:4} ({pct:5.1f}%) {bar}")
-
-        return self.add_section(
-            "Sentiment Distribution",
-            "\n".join(lines),
-            distribution,
-        )
-
-    def add_highlights(
-        self,
-        most_positive: str,
-        most_negative: str,
-    ) -> "SentimentReporter":
-        """Add highlights section."""
-        content = (
-            f"Most Positive:\n  \"{most_positive[:100]}...\"\n\n"
-            f"Most Negative:\n  \"{most_negative[:100]}...\""
-        )
-        return self.add_section("Highlights", content)
-
-    def add_metadata(self, key: str, value: Any) -> "SentimentReporter":
-        """Add metadata to report."""
+    def add_metadata(self, key: str, value: Any) -> "ReportBuilder":
+        """Add metadata."""
         self._metadata[key] = value
         return self
 
-    def generate(self) -> SentimentReport:
-        """Generate the final report."""
+    def build(self, summary: str = "") -> SentimentReport:
+        """Build the report."""
         return SentimentReport(
             title=self.title,
-            generated_at=datetime.now(),
+            created_at=datetime.now(),
             sections=self._sections.copy(),
+            summary=summary,
             metadata=self._metadata.copy(),
         )
 
-    def reset(self) -> "SentimentReporter":
-        """Reset the reporter for a new report."""
-        self._sections.clear()
-        self._metadata.clear()
-        return self
+
+class ReportFormatter:
+    """Format reports to different outputs."""
+
+    def format(
+        self,
+        report: SentimentReport,
+        fmt: ReportFormat = ReportFormat.TEXT,
+    ) -> str:
+        """Format a report."""
+        if fmt == ReportFormat.TEXT:
+            return self._format_text(report)
+        elif fmt == ReportFormat.MARKDOWN:
+            return self._format_markdown(report)
+        elif fmt == ReportFormat.HTML:
+            return self._format_html(report)
+        elif fmt == ReportFormat.JSON:
+            return self._format_json(report)
+        return self._format_text(report)
+
+    def _format_text(self, report: SentimentReport) -> str:
+        """Format as plain text."""
+        lines = [
+            "=" * 50,
+            report.title,
+            "=" * 50,
+            f"Generated: {report.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+
+        for section in report.sections:
+            lines.append(f"--- {section.title} ---")
+            lines.append(section.content)
+            lines.append("")
+
+        if report.summary:
+            lines.append("Summary:")
+            lines.append(report.summary)
+
+        return "\n".join(lines)
+
+    def _format_markdown(self, report: SentimentReport) -> str:
+        """Format as markdown."""
+        lines = [
+            f"# {report.title}",
+            f"*Generated: {report.created_at.strftime('%Y-%m-%d %H:%M:%S')}*",
+            "",
+        ]
+
+        for section in report.sections:
+            lines.append(f"## {section.title}")
+            lines.append(section.content)
+            lines.append("")
+
+        if report.summary:
+            lines.append("## Summary")
+            lines.append(report.summary)
+
+        return "\n".join(lines)
+
+    def _format_html(self, report: SentimentReport) -> str:
+        """Format as HTML."""
+        sections_html = ""
+        for section in report.sections:
+            sections_html += f"<h2>{section.title}</h2><p>{section.content}</p>"
+
+        return f"""
+<!DOCTYPE html>
+<html>
+<head><title>{report.title}</title></head>
+<body>
+<h1>{report.title}</h1>
+<p><em>Generated: {report.created_at.strftime('%Y-%m-%d %H:%M:%S')}</em></p>
+{sections_html}
+<h2>Summary</h2>
+<p>{report.summary}</p>
+</body>
+</html>
+"""
+
+    def _format_json(self, report: SentimentReport) -> str:
+        """Format as JSON."""
+        import json
+        return json.dumps({
+            "title": report.title,
+            "created_at": report.created_at.isoformat(),
+            "sections": [
+                {"title": s.title, "content": s.content, "data": s.data}
+                for s in report.sections
+            ],
+            "summary": report.summary,
+            "metadata": report.metadata,
+        }, indent=2)
 
 
 def create_report(
     title: str,
-    total: int,
-    avg_sentiment: float,
-    distribution: Dict[str, int],
+    sections: List[Dict[str, str]],
+    summary: str = "",
 ) -> SentimentReport:
-    """Create a simple sentiment report."""
-    total_count = sum(distribution.values())
-    positive_pct = distribution.get("positive", 0) / total_count if total_count else 0
-    negative_pct = distribution.get("negative", 0) / total_count if total_count else 0
-
-    return (
-        SentimentReporter(title)
-        .add_summary(total, avg_sentiment, positive_pct, negative_pct)
-        .add_distribution(distribution)
-        .generate()
-    )
+    """Create a report from sections."""
+    builder = ReportBuilder(title)
+    for section in sections:
+        builder.add_section(
+            title=section.get("title", ""),
+            content=section.get("content", ""),
+        )
+    return builder.build(summary)
