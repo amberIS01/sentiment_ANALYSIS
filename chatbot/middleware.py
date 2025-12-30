@@ -1,115 +1,175 @@
 """
 Middleware Module
 
-Provides middleware chain for message processing.
+Middleware system for sentiment analysis.
 """
 
-from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Any
 from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Callable
+from abc import ABC, abstractmethod
 
 
 @dataclass
-class Context:
-    """Request context passed through middleware."""
+class MiddlewareContext:
+    """Context passed through middleware."""
 
-    message: str
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    metadata: Optional[dict] = None
+    text: str
+    score: Optional[float] = None
+    metadata: Dict[str, Any] = None
+    should_continue: bool = True
 
-    def with_message(self, message: str) -> "Context":
-        """Create new context with updated message."""
-        return Context(
-            message=message,
-            user_id=self.user_id,
-            session_id=self.session_id,
-            metadata=self.metadata,
-        )
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
 
 
-NextFunction = Callable[[Context], str]
+NextFunction = Callable[[MiddlewareContext], MiddlewareContext]
 
 
 class Middleware(ABC):
     """Base middleware class."""
 
+    @property
     @abstractmethod
-    def __call__(self, context: Context, next_fn: NextFunction) -> str:
-        """Process the context and call next middleware."""
+    def name(self) -> str:
+        """Middleware name."""
+        pass
+
+    @abstractmethod
+    def process(
+        self,
+        context: MiddlewareContext,
+        next_fn: NextFunction,
+    ) -> MiddlewareContext:
+        """Process context."""
         pass
 
 
+class LoggingMiddleware(Middleware):
+    """Log requests."""
+
+    def __init__(self, logger: Optional[Callable[[str], None]] = None):
+        self._logger = logger or print
+
+    @property
+    def name(self) -> str:
+        return "logging"
+
+    def process(
+        self,
+        context: MiddlewareContext,
+        next_fn: NextFunction,
+    ) -> MiddlewareContext:
+        self._logger(f"Processing: {context.text[:50]}...")
+        result = next_fn(context)
+        self._logger(f"Result: score={result.score}")
+        return result
+
+
+class ValidationMiddleware(Middleware):
+    """Validate input."""
+
+    def __init__(self, min_length: int = 1, max_length: int = 10000):
+        self.min_length = min_length
+        self.max_length = max_length
+
+    @property
+    def name(self) -> str:
+        return "validation"
+
+    def process(
+        self,
+        context: MiddlewareContext,
+        next_fn: NextFunction,
+    ) -> MiddlewareContext:
+        if len(context.text) < self.min_length:
+            context.should_continue = False
+            context.metadata["error"] = "Text too short"
+            return context
+        if len(context.text) > self.max_length:
+            context.text = context.text[:self.max_length]
+        return next_fn(context)
+
+
+class CacheMiddleware(Middleware):
+    """Cache results."""
+
+    def __init__(self):
+        self._cache: Dict[str, float] = {}
+
+    @property
+    def name(self) -> str:
+        return "cache"
+
+    def process(
+        self,
+        context: MiddlewareContext,
+        next_fn: NextFunction,
+    ) -> MiddlewareContext:
+        cache_key = context.text
+        if cache_key in self._cache:
+            context.score = self._cache[cache_key]
+            context.metadata["cached"] = True
+            return context
+
+        result = next_fn(context)
+        if result.score is not None:
+            self._cache[cache_key] = result.score
+        return result
+
+
 class MiddlewareChain:
-    """Chain of middleware processors."""
+    """Chain of middleware."""
 
     def __init__(self):
         """Initialize chain."""
-        self._middlewares: List[Middleware] = []
-        self._handler: Optional[Callable[[Context], str]] = None
+        self._middleware: List[Middleware] = []
 
     def use(self, middleware: Middleware) -> "MiddlewareChain":
-        """Add middleware to chain."""
-        self._middlewares.append(middleware)
+        """Add middleware."""
+        self._middleware.append(middleware)
         return self
 
-    def set_handler(
+    def remove(self, name: str) -> bool:
+        """Remove middleware by name."""
+        for i, m in enumerate(self._middleware):
+            if m.name == name:
+                self._middleware.pop(i)
+                return True
+        return False
+
+    def execute(
         self,
-        handler: Callable[[Context], str],
-    ) -> "MiddlewareChain":
-        """Set the final handler."""
-        self._handler = handler
-        return self
+        text: str,
+        analyzer: Callable[[str], float],
+    ) -> MiddlewareContext:
+        """Execute chain."""
+        context = MiddlewareContext(text=text)
 
-    def process(self, context: Context) -> str:
-        """Process context through middleware chain."""
-        if not self._handler:
-            raise ValueError("No handler set")
+        def final_handler(ctx: MiddlewareContext) -> MiddlewareContext:
+            if ctx.should_continue:
+                ctx.score = analyzer(ctx.text)
+            return ctx
 
-        def create_next(index: int) -> NextFunction:
-            if index >= len(self._middlewares):
-                return self._handler
+        def build_chain(index: int) -> NextFunction:
+            if index >= len(self._middleware):
+                return final_handler
 
-            def next_fn(ctx: Context) -> str:
-                middleware = self._middlewares[index]
-                return middleware(ctx, create_next(index + 1))
+            middleware = self._middleware[index]
+
+            def next_fn(ctx: MiddlewareContext) -> MiddlewareContext:
+                if not ctx.should_continue:
+                    return ctx
+                return middleware.process(ctx, build_chain(index + 1))
 
             return next_fn
 
-        return create_next(0)(context)
+        return build_chain(0)(context)
 
 
-class LoggingMiddleware(Middleware):
-    """Log messages passing through."""
-
-    def __init__(self, logger: Optional[Any] = None):
-        self.logger = logger
-
-    def __call__(self, context: Context, next_fn: NextFunction) -> str:
-        if self.logger:
-            self.logger.debug(f"Processing: {context.message[:50]}")
-        response = next_fn(context)
-        if self.logger:
-            self.logger.debug(f"Response: {response[:50]}")
-        return response
-
-
-class TrimMiddleware(Middleware):
-    """Trim whitespace from messages."""
-
-    def __call__(self, context: Context, next_fn: NextFunction) -> str:
-        trimmed = context.message.strip()
-        return next_fn(context.with_message(trimmed))
-
-
-class LengthLimitMiddleware(Middleware):
-    """Limit message length."""
-
-    def __init__(self, max_length: int = 5000):
-        self.max_length = max_length
-
-    def __call__(self, context: Context, next_fn: NextFunction) -> str:
-        message = context.message
-        if len(message) > self.max_length:
-            message = message[:self.max_length]
-        return next_fn(context.with_message(message))
+def create_chain(*middleware: Middleware) -> MiddlewareChain:
+    """Create middleware chain."""
+    chain = MiddlewareChain()
+    for m in middleware:
+        chain.use(m)
+    return chain
