@@ -1,158 +1,113 @@
-"""
-Tests for the Reporter Module.
-"""
+"""Tests for reporter module."""
 
 import pytest
-import json
-
+from datetime import datetime
 from chatbot.reporter import (
-    SentimentReporter,
-    SentimentReport,
+    ReportFormat,
     ReportSection,
+    SentimentReport,
+    ReportBuilder,
+    ReportFormatter,
     create_report,
 )
 
 
-class TestReportSection:
-    """Test ReportSection dataclass."""
-
-    def test_creation(self):
-        section = ReportSection(
-            title="Summary",
-            content="This is the summary",
-        )
-        assert section.title == "Summary"
-
-    def test_with_data(self):
-        section = ReportSection(
-            title="Stats",
-            content="Statistics here",
-            data={"count": 10},
-        )
-        assert section.data["count"] == 10
-
-
-class TestSentimentReport:
-    """Test SentimentReport dataclass."""
-
-    def test_to_dict(self):
-        from datetime import datetime
-        report = SentimentReport(
-            title="Test Report",
-            generated_at=datetime.now(),
-            sections=[],
-            metadata={},
-        )
-        result = report.to_dict()
-        assert "title" in result
-        assert "generated_at" in result
-
-    def test_to_json(self):
-        from datetime import datetime
-        report = SentimentReport(
-            title="Test Report",
-            generated_at=datetime.now(),
-            sections=[],
-            metadata={},
-        )
-        json_str = report.to_json()
-        data = json.loads(json_str)
-        assert data["title"] == "Test Report"
-
-    def test_to_text(self):
-        from datetime import datetime
-        report = SentimentReport(
-            title="Test Report",
-            generated_at=datetime.now(),
-            sections=[
-                ReportSection("Section 1", "Content 1"),
-            ],
-            metadata={},
-        )
-        text = report.to_text()
-        assert "Test Report" in text
-        assert "Section 1" in text
-
-
-class TestSentimentReporter:
-    """Test SentimentReporter class."""
-
-    def test_initialization(self):
-        reporter = SentimentReporter()
-        assert reporter.title == "Sentiment Analysis Report"
-
-    def test_custom_title(self):
-        reporter = SentimentReporter("Custom Report")
-        assert reporter.title == "Custom Report"
+class TestReportBuilder:
+    """Tests for ReportBuilder."""
 
     def test_add_section(self):
-        reporter = SentimentReporter()
-        reporter.add_section("Test", "Content")
-        report = reporter.generate()
+        """Test adding section."""
+        builder = ReportBuilder("Test Report")
+        builder.add_section("Overview", "This is the overview")
+        
+        report = builder.build()
         assert len(report.sections) == 1
 
-    def test_add_summary(self):
-        reporter = SentimentReporter()
-        reporter.add_summary(
-            total_analyzed=100,
-            avg_sentiment=0.5,
-            positive_pct=0.6,
-            negative_pct=0.2,
-        )
-        report = reporter.generate()
-        assert any(s.title == "Summary" for s in report.sections)
-
-    def test_add_distribution(self):
-        reporter = SentimentReporter()
-        reporter.add_distribution({
-            "positive": 60,
-            "negative": 20,
-            "neutral": 20,
-        })
-        report = reporter.generate()
-        assert any(s.title == "Sentiment Distribution" for s in report.sections)
-
-    def test_add_highlights(self):
-        reporter = SentimentReporter()
-        reporter.add_highlights(
-            most_positive="Great product!",
-            most_negative="Terrible service",
-        )
-        report = reporter.generate()
-        assert any(s.title == "Highlights" for s in report.sections)
-
     def test_add_metadata(self):
-        reporter = SentimentReporter()
-        reporter.add_metadata("source", "test")
-        report = reporter.generate()
-        assert report.metadata["source"] == "test"
+        """Test adding metadata."""
+        builder = ReportBuilder()
+        builder.add_metadata("author", "test")
+        
+        report = builder.build()
+        assert report.metadata["author"] == "test"
+
+    def test_build(self):
+        """Test building report."""
+        builder = ReportBuilder("My Report")
+        builder.add_section("Intro", "Introduction text")
+        
+        report = builder.build("Summary here")
+        
+        assert report.title == "My Report"
+        assert report.summary == "Summary here"
 
     def test_chaining(self):
+        """Test method chaining."""
         report = (
-            SentimentReporter("Test")
-            .add_section("Intro", "Hello")
+            ReportBuilder("Chain Test")
+            .add_section("A", "Content A")
+            .add_section("B", "Content B")
             .add_metadata("key", "value")
-            .generate()
+            .build()
         )
-        assert report.title == "Test"
+        
+        assert len(report.sections) == 2
 
-    def test_reset(self):
-        reporter = SentimentReporter()
-        reporter.add_section("Test", "Content")
-        reporter.reset()
-        report = reporter.generate()
-        assert len(report.sections) == 0
+
+class TestReportFormatter:
+    """Tests for ReportFormatter."""
+
+    def test_format_text(self):
+        """Test text formatting."""
+        report = ReportBuilder("Test").add_section("S", "Content").build()
+        formatter = ReportFormatter()
+        
+        result = formatter.format(report, ReportFormat.TEXT)
+        
+        assert "Test" in result
+        assert "Content" in result
+
+    def test_format_markdown(self):
+        """Test markdown formatting."""
+        report = ReportBuilder("Test").add_section("S", "Content").build()
+        formatter = ReportFormatter()
+        
+        result = formatter.format(report, ReportFormat.MARKDOWN)
+        
+        assert "# Test" in result
+        assert "## S" in result
+
+    def test_format_html(self):
+        """Test HTML formatting."""
+        report = ReportBuilder("Test").add_section("S", "Content").build()
+        formatter = ReportFormatter()
+        
+        result = formatter.format(report, ReportFormat.HTML)
+        
+        assert "<h1>Test</h1>" in result
+        assert "<html>" in result
+
+    def test_format_json(self):
+        """Test JSON formatting."""
+        report = ReportBuilder("Test").add_section("S", "Content").build()
+        formatter = ReportFormatter()
+        
+        result = formatter.format(report, ReportFormat.JSON)
+        
+        assert '"title": "Test"' in result
 
 
 class TestCreateReport:
-    """Test create_report function."""
+    """Tests for create_report function."""
 
-    def test_basic_report(self):
-        report = create_report(
-            title="Test",
-            total=100,
-            avg_sentiment=0.5,
-            distribution={"positive": 60, "negative": 20, "neutral": 20},
-        )
-        assert isinstance(report, SentimentReport)
-        assert report.title == "Test"
+    def test_create(self):
+        """Test creating report."""
+        sections = [
+            {"title": "A", "content": "Content A"},
+            {"title": "B", "content": "Content B"},
+        ]
+        
+        report = create_report("My Report", sections, "Summary")
+        
+        assert report.title == "My Report"
+        assert len(report.sections) == 2
