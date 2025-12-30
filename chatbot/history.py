@@ -1,115 +1,148 @@
 """
-Sentiment History Tracker Module
+History Module
 
-Tracks sentiment changes over time for trend analysis.
+Track sentiment history over time.
 """
 
 from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Any
 from datetime import datetime
-from typing import List, Optional, Dict, Any
 from collections import deque
 
 
 @dataclass
-class SentimentPoint:
-    """A single sentiment measurement point."""
+class HistoryEntry:
+    """A single history entry."""
 
-    timestamp: datetime
+    text: str
     score: float
-    label: str
-    text: Optional[str] = None
+    timestamp: datetime
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class HistoryStats:
+    """Statistics from history."""
+
+    count: int
+    avg_score: float
+    min_score: float
+    max_score: float
+    std_dev: float
+    trend: str
 
 
 class SentimentHistory:
     """Track sentiment over time."""
 
     def __init__(self, max_size: int = 1000):
-        """Initialize history tracker.
-
-        Args:
-            max_size: Maximum number of points to keep
-        """
-        self._points: deque = deque(maxlen=max_size)
+        """Initialize history."""
+        self._entries: deque = deque(maxlen=max_size)
         self._max_size = max_size
 
     def add(
         self,
+        text: str,
         score: float,
-        label: str,
-        text: Optional[str] = None,
-    ) -> SentimentPoint:
-        """Add a sentiment point."""
-        point = SentimentPoint(
-            timestamp=datetime.now(),
-            score=score,
-            label=label,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> HistoryEntry:
+        """Add entry to history."""
+        entry = HistoryEntry(
             text=text,
+            score=score,
+            timestamp=datetime.now(),
+            metadata=metadata or {},
         )
-        self._points.append(point)
-        return point
+        self._entries.append(entry)
+        return entry
 
-    def get_recent(self, n: int = 10) -> List[SentimentPoint]:
-        """Get n most recent points."""
-        return list(self._points)[-n:]
+    def get_recent(self, n: int = 10) -> List[HistoryEntry]:
+        """Get recent entries."""
+        entries = list(self._entries)
+        return entries[-n:]
 
-    def get_all(self) -> List[SentimentPoint]:
-        """Get all points."""
-        return list(self._points)
+    def get_by_range(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> List[HistoryEntry]:
+        """Get entries in time range."""
+        return [
+            e for e in self._entries
+            if start <= e.timestamp <= end
+        ]
 
-    def average_score(self) -> float:
-        """Get average sentiment score."""
-        if not self._points:
-            return 0.0
-        return sum(p.score for p in self._points) / len(self._points)
+    def get_stats(self) -> HistoryStats:
+        """Get history statistics."""
+        if not self._entries:
+            return HistoryStats(
+                count=0,
+                avg_score=0.0,
+                min_score=0.0,
+                max_score=0.0,
+                std_dev=0.0,
+                trend="stable",
+            )
 
-    def trend(self) -> str:
-        """Determine sentiment trend."""
-        if len(self._points) < 2:
-            return "stable"
+        scores = [e.score for e in self._entries]
+        avg = sum(scores) / len(scores)
+        variance = sum((s - avg) ** 2 for s in scores) / len(scores)
 
-        recent = list(self._points)[-5:]
-        if len(recent) < 2:
-            return "stable"
+        # Calculate trend
+        if len(scores) >= 2:
+            first_half = scores[:len(scores) // 2]
+            second_half = scores[len(scores) // 2:]
+            first_avg = sum(first_half) / len(first_half)
+            second_avg = sum(second_half) / len(second_half)
+            
+            if second_avg - first_avg > 0.1:
+                trend = "improving"
+            elif first_avg - second_avg > 0.1:
+                trend = "declining"
+            else:
+                trend = "stable"
+        else:
+            trend = "stable"
 
-        first_half = recent[:len(recent) // 2]
-        second_half = recent[len(recent) // 2:]
-
-        avg_first = sum(p.score for p in first_half) / len(first_half)
-        avg_second = sum(p.score for p in second_half) / len(second_half)
-
-        diff = avg_second - avg_first
-        if diff > 0.1:
-            return "improving"
-        elif diff < -0.1:
-            return "declining"
-        return "stable"
-
-    def label_counts(self) -> Dict[str, int]:
-        """Count occurrences of each label."""
-        counts: Dict[str, int] = {}
-        for point in self._points:
-            counts[point.label] = counts.get(point.label, 0) + 1
-        return counts
+        return HistoryStats(
+            count=len(scores),
+            avg_score=avg,
+            min_score=min(scores),
+            max_score=max(scores),
+            std_dev=variance ** 0.5,
+            trend=trend,
+        )
 
     def clear(self) -> None:
-        """Clear all history."""
-        self._points.clear()
+        """Clear history."""
+        self._entries.clear()
+
+    def export(self) -> List[Dict[str, Any]]:
+        """Export history as list of dicts."""
+        return [
+            {
+                "text": e.text,
+                "score": e.score,
+                "timestamp": e.timestamp.isoformat(),
+                "metadata": e.metadata,
+            }
+            for e in self._entries
+        ]
 
     def __len__(self) -> int:
-        return len(self._points)
+        return len(self._entries)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Export history as dictionary."""
-        return {
-            "points": [
-                {
-                    "timestamp": p.timestamp.isoformat(),
-                    "score": p.score,
-                    "label": p.label,
-                }
-                for p in self._points
-            ],
-            "average": self.average_score(),
-            "trend": self.trend(),
-            "counts": self.label_counts(),
-        }
+
+def track_sentiment(
+    history: SentimentHistory,
+    text: str,
+    score: float,
+) -> HistoryEntry:
+    """Track a sentiment score."""
+    return history.add(text, score)
+
+
+def get_trend(history: SentimentHistory) -> str:
+    """Get sentiment trend from history."""
+    stats = history.get_stats()
+    return stats.trend
