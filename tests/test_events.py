@@ -1,126 +1,146 @@
-"""
-Tests for the Events Module.
-"""
+"""Tests for events module."""
 
 import pytest
-
-from chatbot.events import Event, EventEmitter, ChatEvents, get_emitter, emit, on
-
-
-class TestEvent:
-    """Test Event dataclass."""
-
-    def test_creation(self):
-        event = Event(name="test", data={"key": "value"})
-        assert event.name == "test"
-        assert event.data == {"key": "value"}
-
-    def test_timestamp(self):
-        event = Event(name="test")
-        assert event.timestamp is not None
+from chatbot.events import (
+    EventType,
+    Event,
+    EventEmitter,
+    EventLog,
+    get_emitter,
+    emit,
+    on,
+)
 
 
 class TestEventEmitter:
-    """Test EventEmitter class."""
-
-    def test_initialization(self):
-        emitter = EventEmitter()
-        assert emitter is not None
+    """Tests for EventEmitter."""
 
     def test_on_and_emit(self):
+        """Test registering and emitting."""
         emitter = EventEmitter()
         received = []
-
-        def handler(event):
-            received.append(event.data)
-
-        emitter.on("test", handler)
-        emitter.emit("test", "hello")
-
+        
+        emitter.on(EventType.ANALYSIS_START, lambda e: received.append(e))
+        emitter.emit(EventType.ANALYSIS_START, {"text": "test"})
+        
         assert len(received) == 1
-        assert received[0] == "hello"
+        assert received[0].data["text"] == "test"
 
-    def test_multiple_handlers(self):
+    def test_off(self):
+        """Test unregistering handler."""
         emitter = EventEmitter()
-        results = []
+        received = []
+        handler = lambda e: received.append(e)
+        
+        emitter.on(EventType.ANALYSIS_START, handler)
+        emitter.off(EventType.ANALYSIS_START, handler)
+        emitter.emit(EventType.ANALYSIS_START)
+        
+        assert len(received) == 0
 
-        emitter.on("test", lambda e: results.append(1))
-        emitter.on("test", lambda e: results.append(2))
-        emitter.emit("test")
-
-        assert results == [1, 2]
-
-    def test_once(self):
+    def test_on_any(self):
+        """Test global handler."""
         emitter = EventEmitter()
-        count = [0]
+        received = []
+        
+        emitter.on_any(lambda e: received.append(e))
+        emitter.emit(EventType.ANALYSIS_START)
+        emitter.emit(EventType.ANALYSIS_COMPLETE)
+        
+        assert len(received) == 2
 
-        def handler(event):
-            count[0] += 1
-
-        emitter.once("test", handler)
-        emitter.emit("test")
-        emitter.emit("test")
-
-        assert count[0] == 1
-
-    def test_off_specific(self):
+    def test_emit_returns_event(self):
+        """Test emit returns event."""
         emitter = EventEmitter()
-        results = []
-
-        def handler(event):
-            results.append(1)
-
-        emitter.on("test", handler)
-        emitter.off("test", handler)
-        emitter.emit("test")
-
-        assert len(results) == 0
-
-    def test_off_all(self):
-        emitter = EventEmitter()
-        results = []
-
-        emitter.on("test", lambda e: results.append(1))
-        emitter.on("test", lambda e: results.append(2))
-        emitter.off("test")
-        emitter.emit("test")
-
-        assert len(results) == 0
-
-    def test_listeners(self):
-        emitter = EventEmitter()
-        handler = lambda e: None
-        emitter.on("test", handler)
-        listeners = emitter.listeners("test")
-        assert handler in listeners
+        event = emitter.emit(EventType.SCORE_CALCULATED, {"score": 0.5})
+        
+        assert isinstance(event, Event)
+        assert event.type == EventType.SCORE_CALCULATED
 
     def test_clear(self):
+        """Test clearing handlers."""
         emitter = EventEmitter()
-        emitter.on("test1", lambda e: None)
-        emitter.on("test2", lambda e: None)
+        emitter.on(EventType.ANALYSIS_START, lambda e: None)
+        emitter.clear(EventType.ANALYSIS_START)
+        
+        assert EventType.ANALYSIS_START not in emitter._handlers or \
+               len(emitter._handlers[EventType.ANALYSIS_START]) == 0
+
+    def test_clear_all(self):
+        """Test clearing all handlers."""
+        emitter = EventEmitter()
+        emitter.on(EventType.ANALYSIS_START, lambda e: None)
+        emitter.on_any(lambda e: None)
         emitter.clear()
-        assert len(emitter.listeners("test1")) == 0
-        assert len(emitter.listeners("test2")) == 0
+        
+        assert len(emitter._handlers) == 0
 
 
-class TestChatEvents:
-    """Test ChatEvents constants."""
+class TestEventLog:
+    """Tests for EventLog."""
 
-    def test_event_names(self):
-        assert ChatEvents.MESSAGE_RECEIVED == "message_received"
-        assert ChatEvents.SENTIMENT_ANALYZED == "sentiment_analyzed"
-        assert ChatEvents.ERROR == "error"
+    def test_add(self):
+        """Test adding event."""
+        log = EventLog()
+        event = Event(EventType.ANALYSIS_START, {})
+        log.add(event)
+        
+        assert len(log.get_all()) == 1
+
+    def test_max_size(self):
+        """Test max size limit."""
+        log = EventLog(max_size=3)
+        for i in range(5):
+            log.add(Event(EventType.ANALYSIS_START, {"i": i}))
+        
+        assert len(log.get_all()) == 3
+
+    def test_get_by_type(self):
+        """Test getting by type."""
+        log = EventLog()
+        log.add(Event(EventType.ANALYSIS_START, {}))
+        log.add(Event(EventType.ANALYSIS_COMPLETE, {}))
+        log.add(Event(EventType.ANALYSIS_START, {}))
+        
+        starts = log.get_by_type(EventType.ANALYSIS_START)
+        
+        assert len(starts) == 2
+
+    def test_clear(self):
+        """Test clearing log."""
+        log = EventLog()
+        log.add(Event(EventType.ANALYSIS_START, {}))
+        log.clear()
+        
+        assert len(log.get_all()) == 0
+
+
+class TestEvent:
+    """Tests for Event dataclass."""
+
+    def test_create(self):
+        """Test creating event."""
+        event = Event(
+            type=EventType.SCORE_CALCULATED,
+            data={"score": 0.5},
+            source="test",
+        )
+        
+        assert event.type == EventType.SCORE_CALCULATED
+        assert event.data["score"] == 0.5
+
+    def test_timestamp(self):
+        """Test timestamp is set."""
+        event = Event(EventType.ANALYSIS_START, {})
+        
+        assert event.timestamp is not None
 
 
 class TestGlobalEmitter:
-    """Test global emitter functions."""
+    """Tests for global emitter functions."""
 
     def test_get_emitter(self):
+        """Test getting global emitter."""
         emitter = get_emitter()
+        
         assert isinstance(emitter, EventEmitter)
-
-    def test_emit_and_on(self):
-        received = []
-        on("global_test", lambda e: received.append(e.data))
-        emit("global_test", "value")
-        assert "value" in received
