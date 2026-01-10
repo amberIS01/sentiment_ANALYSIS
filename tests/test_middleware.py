@@ -1,122 +1,159 @@
-"""
-Tests for the Middleware Module.
-"""
+"""Tests for middleware module."""
 
 import pytest
-
 from chatbot.middleware import (
-    Context,
-    Middleware,
-    MiddlewareChain,
+    MiddlewareContext,
     LoggingMiddleware,
-    TrimMiddleware,
-    LengthLimitMiddleware,
+    ValidationMiddleware,
+    CacheMiddleware,
+    MiddlewareChain,
+    create_chain,
 )
 
 
-class TestContext:
-    """Test Context dataclass."""
+class TestMiddlewareContext:
+    """Tests for MiddlewareContext."""
 
-    def test_creation(self):
-        ctx = Context(message="hello")
-        assert ctx.message == "hello"
+    def test_create(self):
+        """Test creating context."""
+        ctx = MiddlewareContext(text="Hello")
+        
+        assert ctx.text == "Hello"
+        assert ctx.score is None
+        assert ctx.should_continue is True
 
-    def test_with_metadata(self):
-        ctx = Context(
-            message="hello",
-            user_id="user1",
-            session_id="sess1",
-            metadata={"key": "value"},
-        )
-        assert ctx.user_id == "user1"
-        assert ctx.metadata["key"] == "value"
-
-    def test_with_message(self):
-        ctx = Context(message="hello", user_id="user1")
-        new_ctx = ctx.with_message("world")
-        assert new_ctx.message == "world"
-        assert new_ctx.user_id == "user1"
+    def test_metadata(self):
+        """Test metadata."""
+        ctx = MiddlewareContext(text="Hi", metadata={"key": "val"})
+        
+        assert ctx.metadata["key"] == "val"
 
 
-class TestTrimMiddleware:
-    """Test TrimMiddleware class."""
+class TestValidationMiddleware:
+    """Tests for ValidationMiddleware."""
 
-    def test_trims_whitespace(self):
-        middleware = TrimMiddleware()
-        ctx = Context(message="  hello world  ")
-        result = middleware(ctx, lambda c: c.message)
-        assert result == "hello world"
+    def test_valid_text(self):
+        """Test valid text passes."""
+        middleware = ValidationMiddleware(min_length=1)
+        ctx = MiddlewareContext(text="Hello")
+        
+        result = middleware.process(ctx, lambda c: c)
+        
+        assert result.should_continue is True
+
+    def test_short_text(self):
+        """Test short text blocked."""
+        middleware = ValidationMiddleware(min_length=10)
+        ctx = MiddlewareContext(text="Hi")
+        
+        result = middleware.process(ctx, lambda c: c)
+        
+        assert result.should_continue is False
+        assert "error" in result.metadata
+
+    def test_truncate_long(self):
+        """Test long text truncated."""
+        middleware = ValidationMiddleware(max_length=5)
+        ctx = MiddlewareContext(text="Hello World")
+        
+        result = middleware.process(ctx, lambda c: c)
+        
+        assert len(result.text) == 5
 
 
-class TestLengthLimitMiddleware:
-    """Test LengthLimitMiddleware class."""
+class TestCacheMiddleware:
+    """Tests for CacheMiddleware."""
 
-    def test_truncates_long_message(self):
-        middleware = LengthLimitMiddleware(max_length=5)
-        ctx = Context(message="hello world")
-        result = middleware(ctx, lambda c: c.message)
-        assert len(result) == 5
-
-    def test_keeps_short_message(self):
-        middleware = LengthLimitMiddleware(max_length=100)
-        ctx = Context(message="hello")
-        result = middleware(ctx, lambda c: c.message)
-        assert result == "hello"
+    def test_cache_hit(self):
+        """Test cache hit."""
+        middleware = CacheMiddleware()
+        ctx = MiddlewareContext(text="test")
+        
+        # First call
+        call_count = [0]
+        def next_fn(c):
+            call_count[0] += 1
+            c.score = 0.5
+            return c
+        
+        middleware.process(ctx, next_fn)
+        
+        # Second call - should hit cache
+        ctx2 = MiddlewareContext(text="test")
+        result = middleware.process(ctx2, next_fn)
+        
+        assert call_count[0] == 1  # Only called once
+        assert result.metadata.get("cached") is True
 
 
 class TestMiddlewareChain:
-    """Test MiddlewareChain class."""
+    """Tests for MiddlewareChain."""
 
-    def test_initialization(self):
+    def test_execute(self):
+        """Test executing chain."""
         chain = MiddlewareChain()
-        assert chain is not None
+        chain.use(ValidationMiddleware())
+        
+        result = chain.execute("Hello", lambda x: 0.5)
+        
+        assert result.score == 0.5
 
-    def test_no_handler_raises(self):
+    def test_chain_order(self):
+        """Test middleware order."""
+        order = []
+        
+        class OrderMiddleware:
+            def __init__(self, name):
+                self._name = name
+            
+            @property
+            def name(self):
+                return self._name
+            
+            def process(self, ctx, next_fn):
+                order.append(self._name)
+                return next_fn(ctx)
+        
         chain = MiddlewareChain()
-        ctx = Context(message="hello")
-        with pytest.raises(ValueError):
-            chain.process(ctx)
+        chain.use(OrderMiddleware("first"))
+        chain.use(OrderMiddleware("second"))
+        
+        chain.execute("test", lambda x: 0.5)
+        
+        assert order == ["first", "second"]
 
-    def test_handler_only(self):
+    def test_remove_middleware(self):
+        """Test removing middleware."""
         chain = MiddlewareChain()
-        chain.set_handler(lambda c: c.message.upper())
-        ctx = Context(message="hello")
-        result = chain.process(ctx)
-        assert result == "HELLO"
+        chain.use(ValidationMiddleware())
+        chain.remove("validation")
+        
+        # Should not fail with empty text now
+        ctx = MiddlewareContext(text="")
+        result = chain.execute("", lambda x: 0.5)
+        
+        assert result.score == 0.5
 
-    def test_single_middleware(self):
+    def test_stop_chain(self):
+        """Test stopping chain."""
         chain = MiddlewareChain()
-        chain.use(TrimMiddleware())
-        chain.set_handler(lambda c: c.message)
-        ctx = Context(message="  hello  ")
-        result = chain.process(ctx)
-        assert result == "hello"
+        chain.use(ValidationMiddleware(min_length=100))
+        
+        result = chain.execute("short", lambda x: 0.5)
+        
+        assert result.score is None
 
-    def test_multiple_middleware(self):
-        chain = MiddlewareChain()
-        chain.use(TrimMiddleware())
-        chain.use(LengthLimitMiddleware(max_length=5))
-        chain.set_handler(lambda c: c.message)
-        ctx = Context(message="  hello world  ")
-        result = chain.process(ctx)
-        assert result == "hello"
 
-    def test_chaining_syntax(self):
-        chain = (
-            MiddlewareChain()
-            .use(TrimMiddleware())
-            .set_handler(lambda c: c.message)
+class TestCreateChain:
+    """Tests for create_chain function."""
+
+    def test_create(self):
+        """Test creating chain."""
+        chain = create_chain(
+            ValidationMiddleware(),
+            CacheMiddleware(),
         )
-        ctx = Context(message="  test  ")
-        result = chain.process(ctx)
-        assert result == "test"
-
-
-class TestLoggingMiddleware:
-    """Test LoggingMiddleware class."""
-
-    def test_passes_through(self):
-        middleware = LoggingMiddleware()
-        ctx = Context(message="hello")
-        result = middleware(ctx, lambda c: c.message)
-        assert result == "hello"
+        
+        result = chain.execute("Hello", lambda x: 0.5)
+        
+        assert result.score == 0.5
